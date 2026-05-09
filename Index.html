@@ -124,42 +124,80 @@
             if (measurements.length >= 3) btnCalculate.style.display = 'block';
         }
 
-        // 4. Captura de datos
+    // 4. Captura de datos (Modificada para guardar coordenadas puras)
         btnCapture.onclick = () => {
             if (!currentLocation) return alert("Esperando señal GPS...");
             
+            // Guardamos la coordenada en crudo, no la calculada
             measurements.push({
-                x: currentLocation.lon * 111320 * Math.cos(currentLocation.lat * Math.PI / 180),
-                y: currentLocation.lat * 110574,
+                lat: currentLocation.lat,
+                lon: currentLocation.lon,
+                alt: currentLocation.alt,
                 angle: currentAzimuth * Math.PI / 180
             });
             updateStatus();
         };
 
-        // 5. Cálculo y Transición al Mapa
+        // 5. Cálculo Geodésico Robusto (Sistema Tangente Local)
         btnCalculate.onclick = () => {
+            if (measurements.length < 2) return;
+
+            // A. Encontrar el Centroide (Origen Local)
+            let sumLat = 0, sumLon = 0;
+            measurements.forEach(m => { sumLat += m.lat; sumLon += m.lon; });
+            const refLat = sumLat / measurements.length;
+            const refLon = sumLon / measurements.length;
+
+            // B. Factores de conversión Métrica Local (Aproximación Plana)
+            const factorLat = 110574; // Metros por grado de latitud
+            const factorLon = 111320 * Math.cos(refLat * Math.PI / 180); // Metros por grado de longitud ajustado
+
             let sumA = [[0,0], [0,0]];
             let sumB = [0,0];
 
+            // C. Construcción del Sistema Lineal en el plano local
             measurements.forEach(m => {
-                let vx = Math.sin(m.angle), vy = Math.cos(m.angle);
-                let m00 = 1 - vx*vx, m01 = -vx*vy, m11 = 1 - vy*vy;
-                sumA[0][0] += m00; sumA[0][1] += m01; sumA[1][0] += m01; sumA[1][1] += m11;
-                sumB[0] += m00 * m.x + m01 * m.y; sumB[1] += m01 * m.x + m11 * m.y;
+                // Distancia en metros desde el origen local
+                let x = (m.lon - refLon) * factorLon;
+                let y = (m.lat - refLat) * factorLat;
+
+                // Vector director
+                let vx = Math.sin(m.angle);
+                let vy = Math.cos(m.angle);
+
+                // Matriz I - v*v^T (Proyección ortogonal)
+                let m00 = 1 - vx*vx;
+                let m01 = -vx*vy;
+                let m11 = 1 - vy*vy;
+
+                // Acumulación de matrices
+                sumA[0][0] += m00;
+                sumA[0][1] += m01;
+                sumA[1][0] += m01;
+                sumA[1][1] += m11;
+
+                sumB[0] += m00 * x + m01 * y;
+                sumB[1] += m01 * x + m11 * y;
             });
 
+            // D. Resolución mediante Regla de Cramer
             let det = sumA[0][0] * sumA[1][1] - sumA[0][1] * sumA[1][0];
-            if (Math.abs(det) < 0.0001) return alert("Error matemático: Líneas paralelas.");
+            
+            // Control de colinealidad (Líneas paralelas o ángulos idénticos)
+            if (Math.abs(det) < 1e-6) {
+                return alert("Advertencia Geofísica: Las capturas son muy colineales. Varíe su posición angular respecto al objetivo.");
+            }
 
+            // Solución (resX, resY) representa la desviación en metros desde el centroide
             let resX = (sumB[0] * sumA[1][1] - sumB[1] * sumA[0][1]) / det;
             let resY = (sumA[0][0] * sumB[1] - sumA[1][0] * sumB[0]) / det;
 
-            finalLat = resY / 110574;
-            finalLon = resX / (111320 * Math.cos(finalLat * Math.PI / 180));
+            // E. Retorno al Sistema de Referencia Espacial WGS84
+            finalLat = refLat + (resY / factorLat);
+            finalLon = refLon + (resX / factorLon);
 
             showResults();
         };
-
         function showResults() {
             document.getElementById('video-container').style.display = 'none';
             document.getElementById('result-container').style.display = 'flex';
