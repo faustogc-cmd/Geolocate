@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Geolocaliza - Intersección Proxima</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        /* Contenedor de Cámara */
+        #video-container { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+
+        /* Cursor en Cruz */
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 60px; height: 60px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 5;
+        }
+        .line-v { position: absolute; left: 50%; width: 2px; height: 100%; background: rgba(255, 255, 255, 0.8); transform: translateX(-50%); }
+        .line-h { position: absolute; top: 50%; width: 100%; height: 2px; background: rgba(255, 255, 255, 0.8); transform: translateY(-50%); }
+        .circle { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; border: 2px solid white; border-radius: 50%; transform: translate(-50%, -50%); }
+
+        /* Interfaz de Usuario */
+        #ui-overlay {
+            position: absolute; bottom: 0; width: 100%; height: 150px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 10;
+        }
+
+        #btn-capture {
+            width: 80px; height: 80px; background: #ff4757; border: 5px solid white;
+            border-radius: 50%; color: white; font-weight: bold; cursor: pointer;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5); active: scale(0.9);
+        }
+
+        #info {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.6); color: #00ff00; padding: 10px 20px;
+            border-radius: 20px; text-align: center; font-size: 14px; width: 80%;
+        }
+
+        #map-container { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 20; }
+        #btn-reset { position: absolute; top: 20px; right: 20px; padding: 10px; background: white; border: none; border-radius: 5px; z-index: 30; }
+    </style>
+</head>
+<body>
+
+    <div id="video-container">
+        <div id="info">Iniciando GPS y Sensores...</div>
+        
+        <video id="webcam" autoplay playsinline></video>
+        
+        <div id="crosshair">
+            <div class="line-v"></div>
+            <div class="line-h"></div>
+            <div class="circle"></div>
+        </div>
+
+        <div id="ui-overlay">
+            <button id="btn-capture">FOTO</button>
+            <p style="color: white; margin-top: 10px;">Apunta y captura al menos 3 puntos</p>
+        </div>
+    </div>
+
+    <div id="map-container">
+        <button id="btn-reset" onclick="location.reload()">REPETIR</button>
+        <iframe id="google-map" width="100%" height="100%" frameborder="0"></iframe>
+    </div>
+
+    <script>
+        let measurements = [];
+        let currentAzimuth = 0;
+        let currentLocation = null;
+
+        const video = document.getElementById('webcam');
+        const info = document.getElementById('info');
+        const btnCapture = document.getElementById('btn-capture');
+
+        // 1. Iniciar Cámara con Camera API
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" }, 
+                    audio: false 
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                info.innerText = "Error: No se pudo acceder a la cámara.";
+            }
+        }
+
+        // 2. Obtener GPS
+        if ("geolocation" in navigator) {
+            navigator.geolocation.watchPosition(pos => {
+                currentLocation = {
+                    lat: pos.coords.latitude,
+                    lon: pos.coords.longitude,
+                    alt: pos.coords.altitude || 0
+                };
+                actualizarInfo();
+            }, err => {
+                info.innerText = "Error GPS: Activa la ubicación.";
+            }, { enableHighAccuracy: true });
+        }
+
+        // 3. Obtener Brújula (Acimut)
+        // Nota: iOS requiere permiso explícito para DeviceOrientation
+        window.addEventListener('deviceorientationabsolute', (e) => {
+            if (e.alpha !== null) {
+                // Brújula corregida (0 = Norte)
+                currentAzimuth = 360 - e.alpha;
+                actualizarInfo();
+            }
+        }, true);
+
+        function actualizarInfo() {
+            info.innerHTML = `Capturas: ${measurements.size || measurements.length}/3 <br> 
+                              Azimuth: ${Math.round(currentAzimuth)}° | Lat: ${currentLocation?.lat.toFixed(5)}`;
+        }
+
+        // 4. Lógica de Captura
+        btnCapture.onclick = () => {
+            if (!currentLocation) return alert("Esperando señal GPS...");
+            
+            measurements.push({
+                x: currentLocation.lon * 111320 * Math.cos(currentLocation.lat * Math.PI / 180),
+                y: currentLocation.lat * 110574,
+                z: currentLocation.alt,
+                angle: currentAzimuth * Math.PI / 180,
+                origLat: currentLocation.lat,
+                origLon: currentLocation.lon
+            });
+
+            actualizarInfo();
+
+            if (measurements.length >= 3) {
+                calcularInterseccion();
+            }
+        };
+
+        // 5. Álgebra Lineal: Resolución de Intersección por Mínimos Cuadrados
+        function calcularInterseccion() {
+            let sumA = [[0,0], [0,0]];
+            let sumB = [0,0];
+
+            measurements.forEach(m => {
+                // Vector de dirección de la línea (basado en el acimut)
+                let vx = Math.sin(m.angle);
+                let vy = Math.cos(m.angle);
+
+                // Matriz I - v*v^T
+                let m00 = 1 - vx*vx;
+                let m01 = -vx*vy;
+                let m10 = -vy*vx;
+                let m11 = 1 - vy*vy;
+
+                // Acumular matriz A
+                sumA[0][0] += m00;
+                sumA[0][1] += m01;
+                sumA[1][0] += m10;
+                sumA[1][1] += m11;
+
+                // Acumular vector b
+                sumB[0] += m00 * m.x + m01 * m.y;
+                sumB[1] += m10 * m.x + m11 * m.y;
+            });
+
+            // Resolver sistema 2x2: Ax = b usando Regla de Cramer
+            let det = sumA[0][0] * sumA[1][1] - sumA[0][1] * sumA[1][0];
+            
+            if (Math.abs(det) < 0.001) return alert("Las líneas son casi paralelas. Toma capturas desde ángulos más abiertos.");
+
+            let resX = (sumB[0] * sumA[1][1] - sumB[1] * sumA[0][1]) / det;
+            let resY = (sumA[0][0] * sumB[1] - sumA[1][0] * sumB[0]) / det;
+
+            // Convertir de vuelta a Latitud/Longitud
+            const finalLat = resY / 110574;
+            const finalLon = resX / (111320 * Math.cos(finalLat * Math.PI / 180));
+
+            mostrarMapa(finalLat, finalLon);
+        }
+
+        function mostrarMapa(lat, lon) {
+            document.getElementById('video-container').style.display = 'none';
+            document.getElementById('map-container').style.display = 'block';
+            
+            const apiKey = 'AIzaSyAzNvxKWSnl12ig-ppS4eVFUMnnXUC1fsI';
+            const url = `https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${lat},${lon}&zoom=18`;
+            document.getElementById('google-map').src = url;
+        }
+
+        setupCamera();
+    </script>
+</body>
+</html>
