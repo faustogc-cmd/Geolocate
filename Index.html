@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Geolocaliza Pro - Ingeniero Fausto Gómez</title>
+    <title>Geolocaliza Pro</title>
     <style>
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         
@@ -59,11 +59,13 @@
             padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; text-align: center; text-decoration: none;
         }
         .btn-nav { background: #1e90ff; color: white; }
-        .btn-reset { background: #57606f; color: white; }
+        .btn-add { background: #eccc68; color: #2f3542; }
+        .btn-reset { background: #ff4757; color: white; }
     </style>
 </head>
 <body>
 
+    <!-- VISTA 1: CÁMARA Y CAPTURA -->
     <div id="video-container">
         <div id="info">Calibrando sensores e iniciando GPS...</div>
         <video id="webcam" autoplay playsinline></video>
@@ -76,18 +78,21 @@
         </div>
     </div>
 
+    <!-- VISTA 2: RESULTADOS Y MAPA -->
     <div id="result-container">
         <iframe id="google-map"></iframe>
         <div id="result-card">
             <div id="coords-display" style="font-family: monospace; font-size: 14px;">Calculando...</div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div style="display: flex; flex-direction: column; gap: 10px;">
                 <a id="btn-navigate" target="_blank" class="btn-action btn-nav">CÓMO LLEGAR</a>
-                <button class="btn-action btn-reset" onclick="location.reload()">NUEVA TOMA</button>
+                <button id="btn-add-more" class="btn-action btn-add">AGREGAR MÁS PUNTOS</button>
+                <button class="btn-action btn-reset" onclick="location.reload()">REINICIAR TODO</button>
             </div>
         </div>
     </div>
 
     <script>
+        // Variables globales
         let measurements = [];
         let currentAzimuth = 0;
         let currentLocation = null;
@@ -98,7 +103,7 @@
         const btnCapture = document.getElementById('btn-capture');
         const btnCalculate = document.getElementById('btn-calculate');
 
-        // 1. Cámara
+        // 1. Inicialización de la Cámara
         async function setupCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -106,7 +111,7 @@
             } catch (err) { info.innerText = "Error: Acceso a cámara denegado."; }
         }
 
-        // 2. GPS de alta precisión
+        // 2. Localización GPS
         if ("geolocation" in navigator) {
             navigator.geolocation.watchPosition(pos => {
                 currentLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude, alt: pos.coords.altitude || 0 };
@@ -114,63 +119,59 @@
             }, null, { enableHighAccuracy: true });
         }
 
-        // 3. Brújula
+        // 3. Sensor de Orientación (Brújula)
         window.addEventListener('deviceorientationabsolute', (e) => {
             if (e.alpha !== null) { currentAzimuth = (360 - e.alpha) % 360; updateStatus(); }
         }, true);
 
+        // Actualiza el texto en la pantalla
         function updateStatus() {
             info.innerHTML = `PUNTOS: <b>${measurements.length}</b> | AZ: <b>${Math.round(currentAzimuth)}°</b><br>LAT: ${currentLocation?.lat.toFixed(6)} | LON: ${currentLocation?.lon.toFixed(6)}`;
             if (measurements.length >= 3) btnCalculate.style.display = 'block';
         }
 
-    // 4. Captura de datos (Modificada para guardar coordenadas puras)
+        // 4. Captura de datos en memoria
         btnCapture.onclick = () => {
             if (!currentLocation) return alert("Esperando señal GPS...");
             
-            // Guardamos la coordenada en crudo, no la calculada
             measurements.push({
                 lat: currentLocation.lat,
                 lon: currentLocation.lon,
                 alt: currentLocation.alt,
-                angle: currentAzimuth * Math.PI / 180
+                angle: currentAzimuth * Math.PI / 180 // Convertir a radianes
             });
             updateStatus();
         };
 
-        // 5. Cálculo Geodésico Robusto (Sistema Tangente Local)
+        // 5. Cálculo Geodésico Robusto (Plano Tangente Local)
         btnCalculate.onclick = () => {
             if (measurements.length < 2) return;
 
-            // A. Encontrar el Centroide (Origen Local)
+            // A. Encontrar el Centroide
             let sumLat = 0, sumLon = 0;
             measurements.forEach(m => { sumLat += m.lat; sumLon += m.lon; });
             const refLat = sumLat / measurements.length;
             const refLon = sumLon / measurements.length;
 
-            // B. Factores de conversión Métrica Local (Aproximación Plana)
-            const factorLat = 110574; // Metros por grado de latitud
-            const factorLon = 111320 * Math.cos(refLat * Math.PI / 180); // Metros por grado de longitud ajustado
+            // B. Factores de conversión Métrica Local
+            const factorLat = 110574; 
+            const factorLon = 111320 * Math.cos(refLat * Math.PI / 180); 
 
             let sumA = [[0,0], [0,0]];
             let sumB = [0,0];
 
-            // C. Construcción del Sistema Lineal en el plano local
+            // C. Construcción del Sistema Lineal
             measurements.forEach(m => {
-                // Distancia en metros desde el origen local
                 let x = (m.lon - refLon) * factorLon;
                 let y = (m.lat - refLat) * factorLat;
 
-                // Vector director
                 let vx = Math.sin(m.angle);
                 let vy = Math.cos(m.angle);
 
-                // Matriz I - v*v^T (Proyección ortogonal)
                 let m00 = 1 - vx*vx;
                 let m01 = -vx*vy;
                 let m11 = 1 - vy*vy;
 
-                // Acumulación de matrices
                 sumA[0][0] += m00;
                 sumA[0][1] += m01;
                 sumA[1][0] += m01;
@@ -180,37 +181,45 @@
                 sumB[1] += m01 * x + m11 * y;
             });
 
-            // D. Resolución mediante Regla de Cramer
+            // D. Resolución del Sistema
             let det = sumA[0][0] * sumA[1][1] - sumA[0][1] * sumA[1][0];
             
-            // Control de colinealidad (Líneas paralelas o ángulos idénticos)
             if (Math.abs(det) < 1e-6) {
-                return alert("Advertencia Geofísica: Las capturas son muy colineales. Varíe su posición angular respecto al objetivo.");
+                return alert("Advertencia: Las capturas son muy colineales. Varíe su posición.");
             }
 
-            // Solución (resX, resY) representa la desviación en metros desde el centroide
             let resX = (sumB[0] * sumA[1][1] - sumB[1] * sumA[0][1]) / det;
             let resY = (sumA[0][0] * sumB[1] - sumA[1][0] * sumB[0]) / det;
 
-            // E. Retorno al Sistema de Referencia Espacial WGS84
+            // E. Retorno a WGS84
             finalLat = refLat + (resY / factorLat);
             finalLon = refLon + (resX / factorLon);
 
             showResults();
         };
+
+        // 6. Transición visual al mapa
         function showResults() {
             document.getElementById('video-container').style.display = 'none';
             document.getElementById('result-container').style.display = 'flex';
             
-            document.getElementById('coords-display').innerHTML = `<b>PUNTO ESTIMADO:</b><br>LAT: ${finalLat.toFixed(7)}<br>LON: ${finalLon.toFixed(7)}`;
+            document.getElementById('coords-display').innerHTML = `<b>PUNTO ESTIMADO (Con ${measurements.length} tomas):</b><br>LAT: ${finalLat.toFixed(7)}<br>LON: ${finalLon.toFixed(7)}`;
             
-            // Link de Navegación Google Maps
             document.getElementById('btn-navigate').href = `https://www.google.com/maps/dir/?api=1&destination=${finalLat},${finalLon}`;
             
-            const apiKey = 'AIzaSyAzNvxKWSnl12ig-ppS4eVFUMnnXUC1fsI';
+            // RECUERDA: Coloca tu API Key aquí
+            const apiKey = 'TU_API_KEY_AQUI';
             document.getElementById('google-map').src = `https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${finalLat},${finalLon}&zoom=18&maptype=satellite`;
         }
 
+        // 7. Lógica para regresar a la cámara y agregar más puntos
+        document.getElementById('btn-add-more').onclick = () => {
+            document.getElementById('result-container').style.display = 'none';
+            document.getElementById('video-container').style.display = 'flex';
+            updateStatus();
+        };
+
+        // Iniciar la aplicación
         setupCamera();
     </script>
 </body>
