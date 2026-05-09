@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Geolocaliza - Intersección Proxima</title>
+    <title>Geolocaliza Pro - Ingeniero Fausto Gómez</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         
         /* Contenedor de Cámara */
         #video-container { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; }
@@ -13,184 +13,164 @@
 
         /* Cursor en Cruz */
         #crosshair {
-            position: absolute; top: 50%; left: 50%;
-            width: 60px; height: 60px;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            z-index: 5;
+            position: absolute; top: 50%; left: 50%; width: 60px; height: 60px;
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 5;
         }
-        .line-v { position: absolute; left: 50%; width: 2px; height: 100%; background: rgba(255, 255, 255, 0.8); transform: translateX(-50%); }
-        .line-h { position: absolute; top: 50%; width: 100%; height: 2px; background: rgba(255, 255, 255, 0.8); transform: translateY(-50%); }
-        .circle { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; border: 2px solid white; border-radius: 50%; transform: translate(-50%, -50%); }
+        .line-v { position: absolute; left: 50%; width: 2px; height: 100%; background: rgba(0, 255, 0, 0.7); transform: translateX(-50%); }
+        .line-h { position: absolute; top: 50%; width: 100%; height: 2px; background: rgba(0, 255, 0, 0.7); transform: translateY(-50%); }
+        .circle { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; border: 2px solid #00ff00; border-radius: 50%; transform: translate(-50%, -50%); }
 
-        /* Interfaz de Usuario */
+        /* UI Overlay */
         #ui-overlay {
-            position: absolute; bottom: 0; width: 100%; height: 150px;
-            background: linear-gradient(transparent, rgba(0,0,0,0.8));
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 10;
+            position: absolute; bottom: 0; width: 100%; padding: 20px 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.9));
+            display: flex; flex-direction: column; align-items: center; gap: 15px; z-index: 10;
         }
 
         #btn-capture {
-            width: 80px; height: 80px; background: #ff4757; border: 5px solid white;
-            border-radius: 50%; color: white; font-weight: bold; cursor: pointer;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5); active: scale(0.9);
+            width: 70px; height: 70px; background: #ff4757; border: 4px solid white;
+            border-radius: 50%; cursor: pointer; box-shadow: 0 0 15px rgba(255,71,87,0.5);
         }
+
+        #btn-calculate {
+            display: none; padding: 12px 25px; background: #2ed573; color: white;
+            border: none; border-radius: 25px; font-weight: bold; cursor: pointer;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
 
         #info {
             position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.6); color: #00ff00; padding: 10px 20px;
-            border-radius: 20px; text-align: center; font-size: 14px; width: 80%;
+            background: rgba(0,0,0,0.7); color: #00ff00; padding: 10px 15px;
+            border-radius: 15px; font-size: 13px; width: 85%; text-align: center; border: 1px solid #00ff00;
         }
 
-        #map-container { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 20; }
-        #btn-reset { position: absolute; top: 20px; right: 20px; padding: 10px; background: white; border: none; border-radius: 5px; z-index: 30; }
+        /* Contenedor de Mapa y Resultados */
+        #result-container { display: none; width: 100%; height: 100%; background: white; flex-direction: column; }
+        #google-map { flex-grow: 1; width: 100%; border: none; }
+        
+        #result-card {
+            padding: 15px; background: #1e1e1e; color: white; display: flex;
+            flex-direction: column; gap: 10px; border-top: 3px solid #2ed573;
+        }
+
+        .btn-action {
+            padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; text-align: center; text-decoration: none;
+        }
+        .btn-nav { background: #1e90ff; color: white; }
+        .btn-reset { background: #57606f; color: white; }
     </style>
 </head>
 <body>
 
     <div id="video-container">
-        <div id="info">Iniciando GPS y Sensores...</div>
-        
+        <div id="info">Calibrando sensores e iniciando GPS...</div>
         <video id="webcam" autoplay playsinline></video>
-        
-        <div id="crosshair">
-            <div class="line-v"></div>
-            <div class="line-h"></div>
-            <div class="circle"></div>
-        </div>
+        <div id="crosshair"><div class="line-v"></div><div class="line-h"></div><div class="circle"></div></div>
 
         <div id="ui-overlay">
-            <button id="btn-capture">FOTO</button>
-            <p style="color: white; margin-top: 10px;">Apunta y captura al menos 3 puntos</p>
+            <button id="btn-calculate">CALCULAR PUNTO</button>
+            <button id="btn-capture" title="Capturar Medición"></button>
+            <p style="color: #ccc; font-size: 12px; margin: 0;">Apunta al objetivo y captura (mínimo 3)</p>
         </div>
     </div>
 
-    <div id="map-container">
-        <button id="btn-reset" onclick="location.reload()">REPETIR</button>
-        <iframe id="google-map" width="100%" height="100%" frameborder="0"></iframe>
+    <div id="result-container">
+        <iframe id="google-map"></iframe>
+        <div id="result-card">
+            <div id="coords-display" style="font-family: monospace; font-size: 14px;">Calculando...</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <a id="btn-navigate" target="_blank" class="btn-action btn-nav">CÓMO LLEGAR</a>
+                <button class="btn-action btn-reset" onclick="location.reload()">NUEVA TOMA</button>
+            </div>
+        </div>
     </div>
 
     <script>
         let measurements = [];
         let currentAzimuth = 0;
         let currentLocation = null;
+        let finalLat = 0, finalLon = 0;
 
         const video = document.getElementById('webcam');
         const info = document.getElementById('info');
         const btnCapture = document.getElementById('btn-capture');
+        const btnCalculate = document.getElementById('btn-calculate');
 
-        // 1. Iniciar Cámara con Camera API
+        // 1. Cámara
         async function setupCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" }, 
-                    audio: false 
-                });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
                 video.srcObject = stream;
-            } catch (err) {
-                info.innerText = "Error: No se pudo acceder a la cámara.";
-            }
+            } catch (err) { info.innerText = "Error: Acceso a cámara denegado."; }
         }
 
-        // 2. Obtener GPS
+        // 2. GPS de alta precisión
         if ("geolocation" in navigator) {
             navigator.geolocation.watchPosition(pos => {
-                currentLocation = {
-                    lat: pos.coords.latitude,
-                    lon: pos.coords.longitude,
-                    alt: pos.coords.altitude || 0
-                };
-                actualizarInfo();
-            }, err => {
-                info.innerText = "Error GPS: Activa la ubicación.";
-            }, { enableHighAccuracy: true });
+                currentLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude, alt: pos.coords.altitude || 0 };
+                updateStatus();
+            }, null, { enableHighAccuracy: true });
         }
 
-        // 3. Obtener Brújula (Acimut)
-        // Nota: iOS requiere permiso explícito para DeviceOrientation
+        // 3. Brújula
         window.addEventListener('deviceorientationabsolute', (e) => {
-            if (e.alpha !== null) {
-                // Brújula corregida (0 = Norte)
-                currentAzimuth = 360 - e.alpha;
-                actualizarInfo();
-            }
+            if (e.alpha !== null) { currentAzimuth = (360 - e.alpha) % 360; updateStatus(); }
         }, true);
 
-        function actualizarInfo() {
-            info.innerHTML = `Capturas: ${measurements.size || measurements.length}/3 <br> 
-                              Azimuth: ${Math.round(currentAzimuth)}° | Lat: ${currentLocation?.lat.toFixed(5)}`;
+        function updateStatus() {
+            info.innerHTML = `PUNTOS: <b>${measurements.length}</b> | AZ: <b>${Math.round(currentAzimuth)}°</b><br>LAT: ${currentLocation?.lat.toFixed(6)} | LON: ${currentLocation?.lon.toFixed(6)}`;
+            if (measurements.length >= 3) btnCalculate.style.display = 'block';
         }
 
-        // 4. Lógica de Captura
+        // 4. Captura de datos
         btnCapture.onclick = () => {
             if (!currentLocation) return alert("Esperando señal GPS...");
             
             measurements.push({
                 x: currentLocation.lon * 111320 * Math.cos(currentLocation.lat * Math.PI / 180),
                 y: currentLocation.lat * 110574,
-                z: currentLocation.alt,
-                angle: currentAzimuth * Math.PI / 180,
-                origLat: currentLocation.lat,
-                origLon: currentLocation.lon
+                angle: currentAzimuth * Math.PI / 180
             });
-
-            actualizarInfo();
-
-            if (measurements.length >= 3) {
-                calcularInterseccion();
-            }
+            updateStatus();
         };
 
-        // 5. Álgebra Lineal: Resolución de Intersección por Mínimos Cuadrados
-        function calcularInterseccion() {
+        // 5. Cálculo y Transición al Mapa
+        btnCalculate.onclick = () => {
             let sumA = [[0,0], [0,0]];
             let sumB = [0,0];
 
             measurements.forEach(m => {
-                // Vector de dirección de la línea (basado en el acimut)
-                let vx = Math.sin(m.angle);
-                let vy = Math.cos(m.angle);
-
-                // Matriz I - v*v^T
-                let m00 = 1 - vx*vx;
-                let m01 = -vx*vy;
-                let m10 = -vy*vx;
-                let m11 = 1 - vy*vy;
-
-                // Acumular matriz A
-                sumA[0][0] += m00;
-                sumA[0][1] += m01;
-                sumA[1][0] += m10;
-                sumA[1][1] += m11;
-
-                // Acumular vector b
-                sumB[0] += m00 * m.x + m01 * m.y;
-                sumB[1] += m10 * m.x + m11 * m.y;
+                let vx = Math.sin(m.angle), vy = Math.cos(m.angle);
+                let m00 = 1 - vx*vx, m01 = -vx*vy, m11 = 1 - vy*vy;
+                sumA[0][0] += m00; sumA[0][1] += m01; sumA[1][0] += m01; sumA[1][1] += m11;
+                sumB[0] += m00 * m.x + m01 * m.y; sumB[1] += m01 * m.x + m11 * m.y;
             });
 
-            // Resolver sistema 2x2: Ax = b usando Regla de Cramer
             let det = sumA[0][0] * sumA[1][1] - sumA[0][1] * sumA[1][0];
-            
-            if (Math.abs(det) < 0.001) return alert("Las líneas son casi paralelas. Toma capturas desde ángulos más abiertos.");
+            if (Math.abs(det) < 0.0001) return alert("Error matemático: Líneas paralelas.");
 
             let resX = (sumB[0] * sumA[1][1] - sumB[1] * sumA[0][1]) / det;
             let resY = (sumA[0][0] * sumB[1] - sumA[1][0] * sumB[0]) / det;
 
-            // Convertir de vuelta a Latitud/Longitud
-            const finalLat = resY / 110574;
-            const finalLon = resX / (111320 * Math.cos(finalLat * Math.PI / 180));
+            finalLat = resY / 110574;
+            finalLon = resX / (111320 * Math.cos(finalLat * Math.PI / 180));
 
-            mostrarMapa(finalLat, finalLon);
-        }
+            showResults();
+        };
 
-        function mostrarMapa(lat, lon) {
+        function showResults() {
             document.getElementById('video-container').style.display = 'none';
-            document.getElementById('map-container').style.display = 'block';
+            document.getElementById('result-container').style.display = 'flex';
             
-            const apiKey = 'AIzaSyAzNvxKWSnl12ig-ppS4eVFUMnnXUC1fsI';
-            const url = `https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${lat},${lon}&zoom=18`;
-            document.getElementById('google-map').src = url;
+            document.getElementById('coords-display').innerHTML = `<b>PUNTO ESTIMADO:</b><br>LAT: ${finalLat.toFixed(7)}<br>LON: ${finalLon.toFixed(7)}`;
+            
+            // Link de Navegación Google Maps
+            document.getElementById('btn-navigate').href = `https://www.google.com/maps/dir/?api=1&destination=${finalLat},${finalLon}`;
+            
+            const apiKey = 'TU_API_KEY_AQUI';
+            document.getElementById('google-map').src = `https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${finalLat},${finalLon}&zoom=18&maptype=satellite`;
         }
 
         setupCamera();
